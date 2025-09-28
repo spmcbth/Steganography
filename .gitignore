@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+
+# Gradio
+.gradio/
+
+# Sensitive keys and certificates
+Digital Certificates/
+User Private Keys/
