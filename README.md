@@ -30,5 +30,4 @@ It provides a Gradio-based user interface with multiple features for encoding/de
    python main.py
    ```
 
-4. **Access the UI**
-   The Gradio app will run locally at: http://127.0.0.1:7860
+4. **The Gradio app will run locally at:** http://127.0.0.1:7860
