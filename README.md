@@ -17,8 +17,8 @@ It provides a Gradio-based user interface with multiple features for encoding/de
 ## 🚀 How to Run
 1. **Clone repository** 
    ```bash
-   git clone <https://github.com/spmcbth/Steganography.git>
-   cd <Steganography>
+   git clone https://github.com/spmcbth/Steganography.git
+   cd Steganography
    ```
 2. **Install requirements**
    ```bash
