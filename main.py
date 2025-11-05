@@ -77,71 +77,47 @@ def decode_message(stego_file, pls_file, key_file):
         return None
 
 # ===== Histogram =====
-def compare_histograms(original_img, stego_img):
+def compare_histograms_and_metrics(original_img, stego_img):
     if original_img is None or stego_img is None:
         gr.Warning("⚠️ Please provide both original and stego images")
-        return None
+        return None, None, None
     try:
         orig = Image.open(original_img).convert("RGB")
         stego = Image.open(stego_img).convert("RGB")
 
-        orig_array = np.array(orig)
-        stego_array = np.array(stego)
+        orig_gray = np.array(orig.convert("L"))
+        stego_gray = np.array(stego.convert("L"))
 
-        fig, axes = plt.subplots(2, 2, figsize=(15, 10))  # 2 hàng, 2 cột
-        colors = ('red', 'green', 'blue')
-        labels = ('Red', 'Green', 'Blue')
+        # Histogram
+        orig_hist, _ = np.histogram(orig_gray.flatten(), bins=256, range=(0, 255))
+        stego_hist, _ = np.histogram(stego_gray.flatten(), bins=256, range=(0, 255))
 
-        # --- Hàng 1: RGB histogram ---
-        for i, (color, label) in enumerate(zip(colors, labels)):
-            axes[0,0].hist(orig_array[:, :, i].flatten(), bins=256, color=color, alpha=0.6, label=label)
-        axes[0,0].set_title("Original Image RGB Histogram")
-        axes[0,0].legend()
+        x = np.arange(256)
+        fig, ax = plt.subplots(figsize=(10, 4))
 
-        for i, (color, label) in enumerate(zip(colors, labels)):
-            axes[0,1].hist(stego_array[:, :, i].flatten(), bins=256, color=color, alpha=0.6, label=label)
-        axes[0,1].set_title("Stego Image RGB Histogram")
-        axes[0,1].legend()
+        ax.plot(x, orig_hist, label="Original", linewidth=1.5, color="blue")
+        ax.plot(x, stego_hist, label="Stego", linewidth=1.5, linestyle="--", color="orange")
 
-        # --- Hàng 2: Grayscale histogram ---
-        axes[1,0].hist(orig.convert("L").getdata(), bins=256, color="gray")
-        axes[1,0].set_title("Original Image Grayscale Histogram")
+        ax.set_title("Grayscale Histogram Comparison")
+        ax.set_xlim(0, 255)
+        ax.legend()
 
-        axes[1,1].hist(stego.convert("L").getdata(), bins=256, color="gray")
-        axes[1,1].set_title("Stego Image Grayscale Histogram")
-
-        plt.tight_layout()
         temp_plot = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         plt.savefig(temp_plot.name, dpi=150, bbox_inches='tight')
         plt.close()
 
-        gr.Info("✅ Histogram comparison generated!")
-        return temp_plot.name
+        # ==== MSE & PSNR ====
+        orig_arr = np.array(orig, dtype=np.float64)
+        stego_arr = np.array(stego, dtype=np.float64)
+
+        mse = np.mean((orig_arr - stego_arr) ** 2)
+        psnr = float("inf") if mse == 0 else 20 * np.log10(255.0 / np.sqrt(mse))
+
+        return temp_plot.name, mse, psnr
+
     except Exception as e:
-        gr.Error(f"❌ Error generating histogram: {str(e)}")
-        return None
-
-# ===== MSE & PSNR =====
-def calculate_mse_psnr(original_img, stego_img):
-    if original_img is None or stego_img is None:
-        gr.Warning("⚠️ Please provide both original and stego images")
-        return None, None
-    try:
-        orig = np.array(Image.open(original_img).convert("RGB"), dtype=np.float64)
-        stego = np.array(Image.open(stego_img).convert("RGB"), dtype=np.float64)
-
-        mse = np.mean((orig - stego) ** 2)
-        if mse == 0:
-            psnr = float("inf")
-        else:
-            PIXEL_MAX = 255.0
-            psnr = 20 * np.log10(PIXEL_MAX / np.sqrt(mse))
-
-        gr.Info("✅ MSE & PSNR calculated successfully!")
-        return round(mse, 5), round(psnr, 5)
-    except Exception as e:
-        gr.Error(f"❌ Error calculating MSE/PSNR: {str(e)}")
-        return None, None
+        gr.Error(f"❌ Error generating histogram/metrics: {str(e)}")
+        return None, None, None
 
 # ===== Interface =====
 def create_interface():
@@ -179,29 +155,28 @@ def create_interface():
                         decoded_output = gr.Textbox(label="📝 Decoded Message", interactive=False, lines=10, placeholder="Decoded message will appear here...")
                 decode_btn.click(fn=decode_message, inputs=[decode_stego, decode_pls, decode_key], outputs=[decoded_output])
 
-            with gr.Tab("📊 Histogram Analysis"):
-                gr.Markdown("### Compare Histograms Between Original and Stego Images")
-                with gr.Row():
-                    orig_image = gr.Image(label="📁 Original Image", type="filepath", image_mode="RGB", height=250)
-                    stego_image = gr.Image(label="📁 Stego Image", type="filepath", image_mode="RGB", height=250)
-                compare_btn = gr.Button("🔍 Compare Histograms", variant="secondary")
-                comparison_plot = gr.Image(label="Histogram Comparison", type="filepath", height=500)
-                compare_btn.click(fn=compare_histograms, inputs=[orig_image, stego_image], outputs=[comparison_plot])
-
-            with gr.Tab("📈 MSE & PSNR Analysis"):
+            with gr.Tab("📊 Image Analysis"):
                 gr.Markdown("""
-                Compare original and stego images by calculating two metrics:
-
+                Compare **original** and **stego** images using:
+                - **Histogram Comparison:** Visualize pixel intensity distributions.
                 - **MSE (Mean Squared Error):** Measures the average squared difference between original and stego images.
                 - **PSNR (Peak Signal-to-Noise Ratio):** Indicates distortion level. Higher PSNR → stego image is closer to the original.
                 """)
                 with gr.Row():
-                    orig_img_psnr = gr.Image(label="📁 Original Image", type="filepath", image_mode="RGB", height=250)
-                    stego_img_psnr = gr.Image(label="📁 Stego Image", type="filepath", image_mode="RGB", height=250)
-                calc_btn = gr.Button("📏 Calculate MSE & PSNR", variant="secondary")
+                    orig_image = gr.Image(label="📁 Original Image", type="filepath", image_mode="RGB", height=250)
+                    stego_image = gr.Image(label="📁 Stego Image", type="filepath", image_mode="RGB", height=250)
+
+                compare_btn = gr.Button("🔍 Analyze", variant="secondary")
+
+                comparison_plot = gr.Image(label="Histogram Comparison", type="filepath", height=350)
                 mse_output = gr.Number(label="MSE")
                 psnr_output = gr.Number(label="PSNR (dB)")
-                calc_btn.click(fn=calculate_mse_psnr, inputs=[orig_img_psnr, stego_img_psnr], outputs=[mse_output, psnr_output])
+
+                compare_btn.click(
+                    fn=compare_histograms_and_metrics,
+                    inputs=[orig_image, stego_image],
+                    outputs=[comparison_plot, mse_output, psnr_output]
+                )
 
             with gr.Tab("ℹ️ About Us"):
                 gr.Markdown("""
