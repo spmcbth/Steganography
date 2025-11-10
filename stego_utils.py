@@ -63,6 +63,16 @@ def bytes_to_pls(data: bytes) -> list[int]:
     """Chuyển bytes thành PLS."""
     return list(map(int, data.decode().split(",")))
 
+def lsb_match(value, bit):
+    bit = int(bit)
+    if (value & 1) == bit:
+        return value  # đúng bit → không đổi
+    # sai bit → tăng/giảm 1
+    if value == 255:
+        return 254
+    if value == 0:
+        return 1
+    return value + random.choice([-1, 1])
 
 # ===== Encode LSB (sửa logic nhúng bit) =====
 def encode_lsb(image_path: str, message: str, stego_path: str, pls_enc_path: str,
@@ -101,12 +111,13 @@ def encode_lsb(image_path: str, message: str, stego_path: str, pls_enc_path: str
         row, col = divmod(x, width)
         r, g, b = pixels[col, row]
         channel = i % 3
+        bit_val = int(bit)
         if channel == 0:
-            r = (r & ~1) | int(bit)
+            r = lsb_match(r, bit_val)
         elif channel == 1:
-            g = (g & ~1) | int(bit)
+            g = lsb_match(g, bit_val)
         else:
-            b = (b & ~1) | int(bit)
+            b = lsb_match(b, bit_val)
         pixels[col, row] = (r, g, b)
 
     im.save(stego_path)
