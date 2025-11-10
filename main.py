@@ -38,10 +38,10 @@ def encode_message(image_file, message, key_file):
             tmp_key.flush()
 
             key = load_key(tmp_key.name)
-            encode_lsb(tmp_img.name, message, tmp_stego.name, tmp_pls.name, key)
+            encode_lsb(tmp_img.name, message, tmp_stego.name, key, k=1, adaptive=True)
 
             gr.Info("✅ Message encoded successfully!")
-            return tmp_stego.name, tmp_pls.name
+            return tmp_stego.name, None
     except Exception as e:
         gr.Error(f"❌ Error encoding: {str(e)}")
         return None, None

@@ -13,3 +13,5 @@ __pycache__/
 # Sensitive keys and certificates
 Digital Certificates/
 User Private Keys/
+
+/test
