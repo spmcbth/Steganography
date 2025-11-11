@@ -35,7 +35,7 @@ It provides a Gradio-based user interface with multiple features for encoding/de
 ## 🚀 Run without GUI
 - You can test the steganography functions without opening the Gradio interface using `test.py`
    ```bash
-   python main.py
+   python test.py
    ```
 - To configure your test in test.py:
    ```bash
