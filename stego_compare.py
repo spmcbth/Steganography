@@ -1,44 +1,44 @@
-import sys
+import os
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 
-def calc_mse_psnr(original, stego):
-    orig = np.array(Image.open(original).convert("RGB"), dtype=np.float64)
-    stego = np.array(Image.open(stego).convert("RGB"), dtype=np.float64)
-
+# Tính MSE/PSNR
+def calc_metrics(original_path, stego_path):
+    orig = np.array(Image.open(original_path).convert("RGB"), dtype=np.float64)
+    stego = np.array(Image.open(stego_path).convert("RGB"), dtype=np.float64)
     mse = np.mean((orig - stego) ** 2)
-    if mse == 0:
-        psnr = float("inf")
-    else:
-        psnr = 20 * np.log10(255.0 / np.sqrt(mse))
-    
+    psnr = float("inf") if mse == 0 else 20 * np.log10(255.0 / np.sqrt(mse))
     return mse, psnr
 
-def plot_hist(original, stego):
-    orig_gray = np.array(Image.open(original).convert("L"))
-    stego_gray = np.array(Image.open(stego).convert("L"))
+def plot_hist_mode(orig_file, stego_file, mode_name):
+    orig_gray = np.array(Image.open(orig_file).convert("L"))
+    stego_gray = np.array(Image.open(stego_file).convert("L"))
 
-    orig_hist, _ = np.histogram(orig_gray.flatten(), bins=256, range=(0, 255))
-    stego_hist, _ = np.histogram(stego_gray.flatten(), bins=256, range=(0, 255))
+    orig_hist, _ = np.histogram(orig_gray.flatten(), bins=256, range=(0,256))   
+    stego_hist, _ = np.histogram(stego_gray.flatten(), bins=256, range=(0,256))
 
     x = np.arange(256)
+    plt.figure(figsize=(10,5))
     plt.plot(x, orig_hist, label="Original")
-    plt.plot(x, stego_hist, label="Stego", linestyle="--")
-    plt.title("Grayscale Histogram Comparison")
+    plt.plot(x, stego_hist, linestyle="--", label=f"Stego ({mode_name})")
+    
+    plt.title(f"Grayscale Histogram Comparison - Mode: {mode_name}")
+    plt.xlabel("Pixel Value")
+    plt.ylabel("Count")
+    plt.xlim(0, 255)
     plt.legend()
     plt.show()
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python stego_eval.py original.png stego.png")
-        sys.exit(1)
+    orig_file = "image/tokyo.jpg"  # ảnh gốc
+    modes = ["simple","advanced","adaptive"]
+    stego_files = [f"output/stego_{mode}.png" for mode in modes]
 
-    orig = sys.argv[1]
-    stego = sys.argv[2]
-
-    mse, psnr = calc_mse_psnr(orig, stego)
-    print(f"MSE  : {mse:.5f}")
-    print(f"PSNR : {psnr:.5f} dB")
-
-    plot_hist(orig, stego)
+    for mode, stego_file in zip(modes, stego_files):
+        if not os.path.exists(stego_file):
+            print(f"Stego file not found: {stego_file}")
+            continue
+        mse, psnr = calc_metrics(orig_file, stego_file)
+        print(f"Mode: {mode} | MSE: {mse:.5f} | PSNR: {psnr:.5f} dB")
+        plot_hist_mode(orig_file, stego_file, mode)

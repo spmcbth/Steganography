@@ -4,16 +4,9 @@ import random
 import hashlib
 from crypto_utils import aes_encrypt, aes_decrypt
 
-try:
-    from scipy import ndimage
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
-
-
-# ===== Helper: Seeded PLS =====
+# ===== Helper: PLS Seeded (Advanced) =====
 def generate_pls_seeded(total_pixels: int, needed_pixels: int, key: bytes) -> list[int]:
-    """Sinh PLS từ key thay vì random thuần túy."""
+    """Sinh PLS từ key (advanced) thay vì random thuần túy."""
     if needed_pixels > total_pixels:
         raise ValueError("Not enough pixels to hide the message.")
     seed = int(hashlib.sha256(key).hexdigest(), 16) % (2**32)
@@ -24,9 +17,9 @@ def generate_pls_seeded(total_pixels: int, needed_pixels: int, key: bytes) -> li
         arr[total_pixels - i - 1], arr[j] = arr[j], arr[total_pixels - i - 1]
     return arr[-needed_pixels:]
 
-
+# ===== Helper: Random PLS (Simple) =====
 def generate_pls(total_pixels: int, needed_pixels: int) -> list[int]:
-    """Sinh PLS ngẫu nhiên."""
+    """Sinh PLS ngẫu nhiên (simple)."""
     if needed_pixels > total_pixels:
         raise ValueError("Not enough pixels to hide the message.")
     arr = list(range(total_pixels))
@@ -35,49 +28,33 @@ def generate_pls(total_pixels: int, needed_pixels: int) -> list[int]:
         arr[total_pixels - i - 1], arr[j] = arr[j], arr[total_pixels - i - 1]
     return arr[-needed_pixels:]
 
+# ===== Helper: Adaptive pixels (high variance) =====
+def generate_pls_adaptive(total_pixels: int, needed_pixels: int) -> list[int]:
+    """PLS adaptive: đơn giản dùng shuffle toàn ảnh (bỏ Sobel)."""
+    return generate_pls(total_pixels, needed_pixels)
 
-# ===== Helper: Adaptive pixels =====
-def get_high_var_pixels(image_path: str, threshold: float = 50.0) -> list[int] | None:
-    """Tìm vùng phức tạp bằng Sobel."""
-    if not HAS_SCIPY:
-        return None
-    try:
-        im = Image.open(image_path).convert("L")
-        arr = np.array(im, dtype=float)
-        sobel_x = ndimage.sobel(arr, axis=1)
-        sobel_y = ndimage.sobel(arr, axis=0)
-        mag = np.sqrt(sobel_x**2 + sobel_y**2)
-        rows, cols = np.where(mag > threshold)
-        width = arr.shape[1]
-        return (rows * width + cols).tolist()
-    except Exception:
-        return None
-
-
+# ===== Helper: Convert PLS ↔ bytes =====
 def pls_to_bytes(pls: list[int]) -> bytes:
-    """Chuyển PLS thành bytes."""
     return ",".join(map(str, pls)).encode()
 
-
 def bytes_to_pls(data: bytes) -> list[int]:
-    """Chuyển bytes thành PLS."""
     return list(map(int, data.decode().split(",")))
 
+# ===== Helper: LSB Matching =====
 def lsb_match(value, bit):
     bit = int(bit)
     if (value & 1) == bit:
-        return value  # đúng bit → không đổi
-    # sai bit → tăng/giảm 1
+        return value
     if value == 255:
         return 254
     if value == 0:
         return 1
     return value + random.choice([-1, 1])
 
-# ===== Encode LSB (sửa logic nhúng bit) =====
+# ===== Encode LSB =====
 def encode_lsb(image_path: str, message: str, stego_path: str, pls_enc_path: str,
-               key: bytes, use_seeded_pls: bool = True, use_adaptive: bool = False):
-    """Giấu message vào ảnh PNG."""
+               key: bytes, mode: str = "simple"):
+    """Giấu message vào ảnh PNG với mode: simple / advanced / adaptive."""
     im = Image.open(image_path)
     if im.mode != "RGB":
         im = im.convert("RGB")
@@ -91,17 +68,13 @@ def encode_lsb(image_path: str, message: str, stego_path: str, pls_enc_path: str
     if needed_pixels > total_pixels * 3:
         raise ValueError("Message quá lớn cho ảnh này.")
 
-    # Sinh PLS
-    if use_seeded_pls:
+    # Chọn PLS
+    mode = mode.lower()
+    if mode == "advanced":
         pls = generate_pls_seeded(total_pixels, needed_pixels, key)
-    elif use_adaptive and HAS_SCIPY:
-        high_var = get_high_var_pixels(image_path)
-        if high_var and len(high_var) >= needed_pixels:
-            random.shuffle(high_var)
-            pls = high_var[:needed_pixels]
-        else:
-            pls = generate_pls(total_pixels, needed_pixels)
-    else:
+    elif mode == "adaptive":
+        pls = generate_pls_adaptive(total_pixels, needed_pixels)
+    else:  # simple
         pls = generate_pls(total_pixels, needed_pixels)
 
     # Nhúng bit
@@ -122,9 +95,9 @@ def encode_lsb(image_path: str, message: str, stego_path: str, pls_enc_path: str
 
     im.save(stego_path)
 
-    # Metadata (seeded hoặc PLS)
-    if use_seeded_pls:
-        metadata = f"seeded:{len(encrypted_msg)}".encode()
+    # Metadata
+    if mode == "advanced":
+        metadata = f"advanced:{len(encrypted_msg)}".encode()
         encrypted_data = aes_encrypt(metadata, key)
     else:
         pls_bytes = pls_to_bytes(pls)
@@ -133,8 +106,7 @@ def encode_lsb(image_path: str, message: str, stego_path: str, pls_enc_path: str
     with open(pls_enc_path, "wb") as f:
         f.write(encrypted_data)
 
-
-# ===== Decode LSB (sửa logic giải mã) =====
+# ===== Decode LSB =====
 def decode_lsb(stego_path: str, pls_enc_path: str, key: bytes) -> str:
     """Giải mã message từ ảnh PNG."""
     im = Image.open(stego_path)
@@ -143,14 +115,13 @@ def decode_lsb(stego_path: str, pls_enc_path: str, key: bytes) -> str:
     width, height = im.size
     total_pixels = width * height
 
-    # Giải mã metadata hoặc PLS
     with open(pls_enc_path, "rb") as f:
         encrypted_data = f.read()
     decrypted_data = aes_decrypt(encrypted_data, key)
 
     try:
         metadata = decrypted_data.decode()
-        if metadata.startswith("seeded:"):
+        if metadata.startswith("advanced:"):
             n_bytes = int(metadata.split(":")[1])
             needed_pixels = n_bytes * 8
             pls = generate_pls_seeded(total_pixels, needed_pixels, key)
@@ -159,7 +130,6 @@ def decode_lsb(stego_path: str, pls_enc_path: str, key: bytes) -> str:
     except Exception:
         pls = bytes_to_pls(decrypted_data)
 
-    # Giải mã bitstream
     pixels = im.load()
     bitstream = ""
     for i, x in enumerate(pls):
@@ -173,7 +143,6 @@ def decode_lsb(stego_path: str, pls_enc_path: str, key: bytes) -> str:
         else:
             bitstream += str(b & 1)
 
-    # Chuyển bit → bytes
     encrypted_bytes = bytearray()
     for i in range(0, len(bitstream), 8):
         byte_bits = bitstream[i:i + 8]
@@ -181,5 +150,4 @@ def decode_lsb(stego_path: str, pls_enc_path: str, key: bytes) -> str:
             break
         encrypted_bytes.append(int(byte_bits, 2))
 
-    # Giải mã AES
     return aes_decrypt(bytes(encrypted_bytes), key).decode()
