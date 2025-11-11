@@ -9,11 +9,11 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
 
-# ===== Encode & Decode tự động =====
+# ===== Encode & Decode =====
 def auto_encode_decode(image_file, message, mode):
     if not image_file or not message:
         gr.Warning("⚠️ Vui lòng cung cấp ảnh và tin nhắn")
-        return None, None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None
     
     try:
         key = generate_aes_key()
@@ -37,10 +37,6 @@ def auto_encode_decode(image_file, message, mode):
             encode_lsb(tmp_img.name, message, tmp_stego.name, tmp_pls.name if mode=="simple" else None, key, mode=mode)
             enc_time = time.time() - start_enc
 
-            start_dec = time.time()
-            decoded_message = decode_lsb(tmp_stego.name, tmp_pls.name if mode=="simple" else None, key)
-            dec_time = time.time() - start_dec
-
             orig = np.array(Image.open(tmp_img.name).convert("RGB"), dtype=np.float64)
             stego = np.array(Image.open(tmp_stego.name).convert("RGB"), dtype=np.float64)
             mse = np.mean((orig - stego)**2)
@@ -55,7 +51,7 @@ def auto_encode_decode(image_file, message, mode):
             fig, ax = plt.subplots(figsize=(10,4))
             ax.plot(x, orig_hist, label="Ảnh gốc", color="blue", linewidth=1.5)
             ax.plot(x, stego_hist, label="Ảnh đã mã hóa", color="orange", linestyle="--", linewidth=1.5)
-            ax.set_title(f"So sánh Histogram - Chế độ: {mode.upper()}")
+            ax.set_title(f"So sánh Histogram - Phương pháp: {mode.capitalize()}")
             ax.set_xlabel("Giá trị Pixel")
             ax.set_ylabel("Số lượng")
             ax.set_xlim(0,255)
@@ -84,19 +80,21 @@ def auto_encode_decode(image_file, message, mode):
                 pls_path = os.path.join(pls_dir, pls_filename)
                 shutil.copy(tmp_pls.name, pls_path)
 
+            metrics_text = f"MSE: {mse:.6f} | PSNR: {psnr:.2f} dB"
+            time_text = f"⏱️ Thời gian mã hóa: {enc_time:.3f}s"
+
             return (stego_path, pls_path, key_path,
-                    decoded_message, f"⏱️ Mã hóa: {enc_time:.3f}s | Giải mã: {dec_time:.3f}s",
-                    temp_plot.name, mse, psnr)
+                    time_text, temp_plot.name, metrics_text, metrics_text)
 
     except Exception as e:
         gr.Error(f"❌ Lỗi: {str(e)}")
-        return None, None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None
 
 # ===== Decode Message =====
 def decode_message(stego_file, pls_file, key_file, mode):
     if not stego_file or not key_file:
         gr.Warning("⚠️ Cần ảnh stego và khóa AES")
-        return None
+        return None, None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_stego, \
              tempfile.NamedTemporaryFile(delete=False, suffix=".enc") as tmp_pls, \
@@ -113,17 +111,23 @@ def decode_message(stego_file, pls_file, key_file, mode):
 
             key = load_key(tmp_key.name)
             pls_path = tmp_pls.name if mode=="simple" else None
+            
+            start_dec = time.time()
             decoded_message = decode_lsb(tmp_stego.name, pls_path, key)
-            return decoded_message
+            dec_time = time.time() - start_dec
+            
+            time_text = f"⏱️ Thời gian giải mã: {dec_time:.3f}s"
+            
+            return decoded_message, time_text
     except Exception as e:
         gr.Error(f"❌ Lỗi khi giải mã: {str(e)}")
-        return None
-    
-# ===== Run Tests cho 2 mode =====
+        return None, None
+
+# ===== Run Tests cho 2 phương pháp =====
 def run_tests(image_file, message):
     if not image_file or not message:
         gr.Warning("⚠️ Vui lòng cung cấp ảnh và tin nhắn")
-        return None, "Không có kết quả"
+        return None, "Không có kết quả", None
     
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_img:
@@ -132,10 +136,10 @@ def run_tests(image_file, message):
             tmp_img.flush()
 
         results = []
-        modes = ["simple", "advanced"]
+        methods = ["simple", "advanced"]
         stego_images = []
 
-        for mode in modes:
+        for method in methods:
             key = generate_aes_key()
             
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_stego, \
@@ -143,12 +147,12 @@ def run_tests(image_file, message):
                 
                 # Encode
                 start = time.time()
-                encode_lsb(tmp_img.name, message, tmp_stego.name, tmp_pls.name if mode=="simple" else None, key, mode=mode)
+                encode_lsb(tmp_img.name, message, tmp_stego.name, tmp_pls.name if method=="simple" else None, key, mode=method)
                 enc_time = time.time() - start
                 
                 # Decode
                 start = time.time()
-                decoded = decode_lsb(tmp_stego.name, tmp_pls.name if mode=="simple" else None, key)
+                decoded = decode_lsb(tmp_stego.name, tmp_pls.name if method=="simple" else None, key)
                 dec_time = time.time() - start
                 
                 # Metrics
@@ -160,7 +164,7 @@ def run_tests(image_file, message):
                 stego_images.append(tmp_stego.name)
                 
                 results.append({
-                    "mode": mode.upper(),
+                    "method": method.capitalize(),
                     "mse": f"{mse:.6f}",
                     "psnr": f"{psnr:.2f} dB",
                     "encode_time": f"{enc_time:.3f}s",
@@ -170,92 +174,177 @@ def run_tests(image_file, message):
         
         # Markdown table
         table = "\n\n### 📊 Bảng So Sánh Chi Tiết\n\n"
-        table += "| Chế độ | MSE | PSNR | Thời gian mã hóa | Thời gian giải mã | Tin nhắn preview |\n"
-        table += "|--------|-----|------|-----------------|-----------------|-----------------|\n"
+        table += "| Phương pháp | MSE | PSNR | Thời gian mã hóa | Thời gian giải mã | Tin nhắn |\n"
+        table += "|-------------|-----|------|------------------|-------------------|----------|\n"
         for res in results:
-            table += f"| {res['mode']} | {res['mse']} | {res['psnr']} | {res['encode_time']} | {res['decode_time']} | {res['decoded']} |\n"
+            table += f"| {res['method']} | {res['mse']} | {res['psnr']} | {res['encode_time']} | {res['decode_time']} | {res['decoded']} |\n"
+        
+        # Histogram comparison
+        orig_gray = np.array(Image.open(tmp_img.name).convert("L"))
+        simple_gray = np.array(Image.open(stego_images[0]).convert("L"))
+        advanced_gray = np.array(Image.open(stego_images[1]).convert("L"))
+        
+        orig_hist, _ = np.histogram(orig_gray.flatten(), bins=256, range=(0,255))
+        simple_hist, _ = np.histogram(simple_gray.flatten(), bins=256, range=(0,255))
+        advanced_hist, _ = np.histogram(advanced_gray.flatten(), bins=256, range=(0,255))
+        
+        x = np.arange(256)
+        fig, ax = plt.subplots(figsize=(12,5))
+        ax.plot(x, orig_hist, label="Ảnh gốc", color="blue", linewidth=2)
+        ax.plot(x, simple_hist, label="Simple (LSB + PLS)", color="green", linestyle="--", linewidth=1.5)
+        ax.plot(x, advanced_hist, label="Advanced (LSB thuần)", color="red", linestyle=":", linewidth=1.5)
+        ax.set_title("So sánh Histogram - Cả 2 Phương Pháp")
+        ax.set_xlabel("Giá trị Pixel")
+        ax.set_ylabel("Số lượng")
+        ax.set_xlim(0,255)
+        ax.legend()
+        temp_plot = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        plt.savefig(temp_plot.name, dpi=150, bbox_inches="tight")
+        plt.close()
         
         gr.Info("✅ So sánh hoàn tất!")
-        return stego_images, table
+        return stego_images, table, temp_plot.name
 
     except Exception as e:
         gr.Error(f"❌ Lỗi khi chạy so sánh: {str(e)}")
-        return None, "Đã xảy ra lỗi"
+        return None, "Đã xảy ra lỗi", None
 
-# ===== Interface =====
+# ===== Giao diện Gradio =====
 def create_interface():
-    with gr.Blocks(title="AES LSB Steganography", theme=gr.themes.Soft()) as app:
-        gr.Markdown("# 🔐 Giấu Tin Mật Trong Ảnh Với AES")
-        gr.Markdown("**LSB + PLS + AES**: giấu tin nhắn bảo mật trong ảnh.")
+    with gr.Blocks(title="Steganography LSB + AES", theme=gr.themes.Soft()) as app:
+        gr.Markdown("# 🔐 Hệ thống Giấu Tin Trong Ảnh")
+        gr.Markdown("Hệ thống **Steganography LSB** kết hợp **AES encryption** và **Pixel Location Sequence (PLS)** để giấu tin nhắn bí mật trong ảnh.")
 
         with gr.Tabs():
-            # --- Quick Encode ---
-            with gr.Tab("🚀 Kiểm Tra Nhanh"):
-                gr.Markdown("### Tải ảnh lên và mã hóa tin nhắn")
+            # --- Mã Hóa ---
+            with gr.Tab("🔒 Mã Hóa Tin Nhắn"):
+                gr.Markdown("### Tải ảnh và mã hóa tin nhắn bí mật")
+                with gr.Row():
+                    mode_dropdown = gr.Dropdown(choices=["simple","advanced"], label="🔧 Phương Pháp Giấu Tin", value="simple")
                 with gr.Row():
                     with gr.Column():
-                        quick_image = gr.Image(label="📷 Ảnh Gốc", type="filepath", height=400)
-                        quick_message = gr.Textbox(label="💬 Tin Nhắn", lines=5)
-                        quick_mode = gr.Dropdown(choices=["simple","advanced"], label="🔧 Mode Selection", value="simple")
-                        quick_btn = gr.Button("🚀 Mã Hóa", variant="primary", size="lg")
+                        image_input = gr.Image(label="📷 Ảnh Gốc", type="filepath", height=430)
                     with gr.Column():
-                        quick_stego = gr.Image(label="🖼️ Ảnh Stego", type="filepath", height=400)
-                        quick_pls = gr.File(label="📥 File PLS (.enc) - Chỉ Simple", interactive=False)
-                        quick_key = gr.File(label="📥 File Khóa AES", interactive=False)
-                        quick_decoded = gr.Textbox(label="📖 Tin Nhắn Đã Giải Mã", interactive=False, lines=8)
+                        message_input = gr.Textbox(label="💬 Tin Nhắn Cần Giấu", lines=5, placeholder="Nhập tin nhắn bí mật...")
                 with gr.Row():
-                    quick_time = gr.Textbox(label="⏱️ Thời Gian", interactive=False, lines=1)
+                    encode_btn = gr.Button("🚀 Mã Hóa", variant="primary", size="lg")
                 with gr.Row():
-                    quick_plot = gr.Image(label="📊 Histogram", type="filepath", height=300)
+                    with gr.Column():
+                        stego_output = gr.Image(label="🖼️ Ảnh Stego", type="filepath", height=400)
+                    with gr.Column():
+                        pls_output = gr.File(label="📥 File PLS (.enc)", interactive=False)
+                        key_output = gr.File(label="🔑 File Khóa AES", interactive=False)
+                with gr.Row():
+                    encode_time = gr.Textbox(label="⏱️ Thời Gian Mã Hóa", interactive=False)
+                with gr.Row():
+                    metrics_output = gr.Textbox(label="📈 Chất Lượng Ảnh", interactive=False)
+                with gr.Row():
+                    hist_output = gr.Image(label="📊 Biểu Đồ Histogram", type="filepath", height=300)
 
-                def toggle_quick_pls(mode):
+                def toggle_pls(mode):
                     return gr.update(visible=(mode=="simple"))
-                quick_mode.change(toggle_quick_pls, quick_mode, quick_pls)
+                mode_dropdown.change(toggle_pls, mode_dropdown, pls_output)
 
-                quick_btn.click(
+                encode_btn.click(
                     fn=auto_encode_decode,
-                    inputs=[quick_image, quick_message, quick_mode],
-                    outputs=[quick_stego, quick_pls, quick_key, quick_decoded, quick_time, quick_plot, quick_time, quick_time]
+                    inputs=[image_input, message_input, mode_dropdown],
+                    outputs=[stego_output, pls_output, key_output, encode_time, hist_output, metrics_output, metrics_output]
                 )
 
-            # --- Decode ---
+            # --- Giải Mã ---
             with gr.Tab("🔓 Giải Mã Tin Nhắn"):
-                gr.Markdown("### Tải ảnh stego và giải mã tin nhắn")
+                gr.Markdown("### Giải mã tin nhắn từ ảnh Stego")
+                with gr.Row():
+                    decode_mode = gr.Dropdown(choices=["simple","advanced"], label="🔧 Phương Pháp Giải Mã", value="simple")
                 with gr.Row():
                     with gr.Column():
-                        decode_mode = gr.Dropdown(choices=["simple","advanced"], label="🔧 Mode Selection", value="simple")
-                        decode_pls = gr.File(label="📁 File PLS (.enc) - Chỉ Simple", file_types=[".enc"])
-                        decode_key = gr.File(label="🔑 File Khóa AES (.txt)", file_types=[".txt"])
+                        decode_image = gr.Image(label="📁 Ảnh Stego", type="filepath", height=430)
                     with gr.Column():
-                        decode_stego = gr.Image(label="📁 Ảnh Stego", type="filepath", height=400)
-                decode_btn = gr.Button("🔓 Giải Mã", variant="primary", size="lg")
-                decode_output = gr.Textbox(label="📝 Tin Nhắn Đã Giải Mã", interactive=False, lines=8)
+                        decode_pls_file = gr.File(label="📁 File PLS (.enc)", file_types=[".enc"])
+                        decode_key_file = gr.File(label="🔑 File Khóa AES (.txt)", file_types=[".txt"])
+                with gr.Row():
+                    decode_btn = gr.Button("🔓 Giải Mã", variant="primary", size="lg")
+                with gr.Row():
+                    decoded_message_output = gr.Textbox(label="📝 Tin Nhắn Giải Mã", interactive=False, lines=15)
+                    decode_time_output = gr.Textbox(label="⏱️ Thời Gian Giải Mã", interactive=False)
 
                 def toggle_decode_pls(mode):
                     return gr.update(visible=(mode=="simple"))
-                decode_mode.change(toggle_decode_pls, decode_mode, decode_pls)
+                decode_mode.change(toggle_decode_pls, decode_mode, decode_pls_file)
 
-                decode_btn.click(fn=decode_message,
-                                 inputs=[decode_stego, decode_pls, decode_key, decode_mode],
-                                 outputs=[decode_output])
+                decode_btn.click(
+                    fn=decode_message,
+                    inputs=[decode_image, decode_pls_file, decode_key_file, decode_mode],
+                    outputs=[decoded_message_output, decode_time_output]
+                )
 
-            # --- So sánh ---
-            with gr.Tab("🧪 So Sánh Các Chế Độ"):
-                gr.Markdown("### Kiểm tra cả 2 mode cùng lúc")
+            # --- So Sánh ---
+            with gr.Tab("🧪 So Sánh Phương Pháp"):
+                gr.Markdown("### Kiểm tra và so sánh hiệu suất giữa 2 phương pháp")
                 with gr.Row():
-                    with gr.Column():
-                        test_image = gr.Image(label="📷 Ảnh Kiểm Tra", type="filepath", height=400)
-                        test_message = gr.Textbox(label="💬 Tin Nhắn Kiểm Tra", lines=5)
-                        test_btn = gr.Button("🧪 Chạy So Sánh", variant="primary", size="lg")
-                    with gr.Column():
-                        test_gallery = gr.Gallery(label="Ảnh Stego [Simple, Advanced]", columns=2, height=300)
-                        test_output = gr.Markdown(label="📊 Kết Quả")
+                    test_image_input = gr.Image(label="📷 Ảnh Kiểm Tra", type="filepath", height=350)
+                    test_message_input = gr.Textbox(label="💬 Tin Nhắn Kiểm Tra", lines=10, placeholder="Nhập tin nhắn để thử nghiệm...")
+                with gr.Row():
+                    test_btn = gr.Button("🧪 So Sánh", variant="primary", size="lg")
+                with gr.Row():
+                    test_gallery = gr.Gallery(label="🖼️ Ảnh Stego [Simple, Advanced]", columns=2, height=350)
+                with gr.Row():
+                    test_table = gr.Markdown(label="📊 Kết Quả So Sánh")
+                with gr.Row():
+                    test_histogram = gr.Image(label="📊 Biểu Đồ Histogram", type="filepath", height=350)
 
-                test_btn.click(fn=lambda img,msg: run_tests(img,msg),
-                               inputs=[test_image,test_message],
-                               outputs=[test_gallery,test_output])
+                test_btn.click(
+                    fn=run_tests,
+                    inputs=[test_image_input, test_message_input],
+                    outputs=[test_gallery, test_table, test_histogram]
+                )
+
+            # --- Giới thiệu ---
+            with gr.Tab("ℹ️ Giới Thiệu"):
+                gr.Markdown("""
+                ## 📖 Giới Thiệu Hệ Thống
+                Hệ thống **Steganography LSB** kết hợp **AES encryption** và **Pixel Location Sequence (PLS)** để giấu tin nhắn bí mật.
+                
+                ### 🎯 Mục Đích
+                - Bảo mật thông tin nhạy cảm
+                - So sánh hiệu quả giữa 2 phương pháp: Simple & Advanced
+                - Đánh giá chất lượng ảnh qua MSE/PSNR và histogram
+                
+                ### 🔧 Tính Năng Chính
+                **Simple (LSB + PLS)**: Cần file PLS để giải mã, bảo mật cao nhờ thứ tự pixel ngẫu nhiên  
+                **Advanced (LSB thuần)**: Không cần file PLS, giải mã đơn giản  
+                **Mã hóa AES**: Tin nhắn được mã hóa trước khi giấu, khóa 256-bit
+                """)
+
+            # --- Hướng dẫn ---
+            with gr.Tab("📚 Hướng Dẫn Sử Dụng"):
+                gr.Markdown("""
+                ## 📝 Mã Hóa
+                1. Chọn tab Mã Hóa Tin Nhắn  
+                2. Chọn phương pháp mã hóa (Simple/Advanced)  
+                3. Tải ảnh gốc (PNG)  
+                4. Nhập tin nhắn  
+                5. Nhấn 🚀 Mã Hóa  
+                6. Tải ảnh Stego, khóa AES, file PLS (nếu có)
+
+                ## 🔓 Giải Mã
+                1. Chọn tab Giải Mã Tin Nhắn  
+                2. Chọn phương pháp giải mã (Simple/Advanced)  
+                3. Tải ảnh Stego, khóa AES, file PLS (nếu có)  
+                4. Nhấn 🔓 Giải Mã
+
+                ## 🧪 So Sánh
+                1. Chọn tab So Sánh  
+                2. Tải ảnh và nhập tin nhắn thử nghiệm  
+                3. Nhấn 🧪 So Sánh  
+                4. Xem ảnh stego, bảng MSE/PSNR, thời gian, histogram
+
+                ## 🔑 Lưu ý
+                - Không chia sẻ khóa AES  
+                - Dùng ảnh PNG, tránh dùng JPG để giảm thiểu mất dữ liệu
+                """)
     return app
 
 if __name__=="__main__":
-    app=create_interface()
+    app = create_interface()
     app.launch(share=True, debug=True)
