@@ -33,10 +33,12 @@ def auto_encode_decode(image_file, message, mode):
             save_key(key, tmp_key.name)
             tmp_key.flush()
 
+            # Encode
             start_enc = time.time()
             encode_lsb(tmp_img.name, message, tmp_stego.name, tmp_pls.name if mode=="simple" else None, key, mode=mode)
             enc_time = time.time() - start_enc
-
+            
+            # Metrics
             orig = np.array(Image.open(tmp_img.name).convert("RGB"), dtype=np.float64)
             stego = np.array(Image.open(tmp_stego.name).convert("RGB"), dtype=np.float64)
             mse = np.mean((orig - stego)**2)
@@ -145,6 +147,10 @@ def run_tests(image_file, message):
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_stego, \
                  tempfile.NamedTemporaryFile(delete=False, suffix=".enc") as tmp_pls:
                 
+                # Resolution
+                with Image.open(tmp_img.name) as im:
+                    width, height = im.size
+                
                 # Encode
                 start = time.time()
                 encode_lsb(tmp_img.name, message, tmp_stego.name, tmp_pls.name if method=="simple" else None, key, mode=method)
@@ -165,6 +171,7 @@ def run_tests(image_file, message):
                 
                 results.append({
                     "method": method.capitalize(),
+                    "resolution": f"{width}x{height}",
                     "mse": f"{mse:.6f}",
                     "psnr": f"{psnr:.2f} dB",
                     "encode_time": f"{enc_time:.3f}s",
@@ -174,10 +181,10 @@ def run_tests(image_file, message):
         
         # Markdown table
         table = "\n\n### 📊 Bảng So Sánh Chi Tiết\n\n"
-        table += "| Phương pháp | MSE | PSNR | Thời gian mã hóa | Thời gian giải mã | Tin nhắn |\n"
-        table += "|-------------|-----|------|------------------|-------------------|----------|\n"
+        table += "| Phương pháp | Resolution | MSE | PSNR | Thời gian mã hóa | Thời gian giải mã | Tin nhắn |\n"
+        table += "|-------------|------------|-----|------|------------------|-------------------|----------|\n"
         for res in results:
-            table += f"| {res['method']} | {res['mse']} | {res['psnr']} | {res['encode_time']} | {res['decode_time']} | {res['decoded']} |\n"
+            table += f"| {res['method']} | {res['resolution']} | {res['mse']} | {res['psnr']} | {res['encode_time']} | {res['decode_time']} | {res['decoded']} |\n"
         
         # Histogram comparison
         orig_gray = np.array(Image.open(tmp_img.name).convert("L"))

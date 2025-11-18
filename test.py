@@ -42,6 +42,10 @@ def run_comparison(orig_file, message):
         tmp_img_path = tempfile.mktemp(suffix=".png")
         shutil.copy(orig_file, tmp_img_path)
 
+        # Get resolution
+        with Image.open(tmp_img_path) as im:
+            width, height = im.size
+
         modes = ["simple", "advanced"]
         stego_paths = []
         metrics_text = ""
@@ -66,6 +70,7 @@ def run_comparison(orig_file, message):
 
             stego_paths.append(tmp_stego_path)
 
+            metrics_text += f"Resolution: {width}x{height}\n"
             metrics_text += f"Phương pháp: {mode.capitalize()}\n"
             metrics_text += f"   MSE: {mse:.6f}\n"
             metrics_text += f"   PSNR: {psnr:.2f} dB\n"
@@ -127,6 +132,6 @@ def run_comparison(orig_file, message):
     print("So sánh hoàn tất. Kiểm tra thư mục output/")
 
 if __name__ == "__main__":
-    orig_file = "image/lena.png"  # Replace with your image path
+    orig_file = "image/cameraman.png"  # Replace with your image path
     message = ("This is a secret message. Only those with the key can read it.")    # Replace with your test message
     run_comparison(orig_file, message)
