@@ -372,7 +372,7 @@ def create_interface():
                 - Phù hợp khi có kênh truyền an toàn cho file PLS
                 
                 #### **Advanced Mode (LSB + Seeded PLS + Metadata)**
-                - PLS được sinh **deterministic** từ SHA256(key)
+                - PLS được sinh từ SHA256(key)
                 - Metadata (độ dài message) được mã hóa và nhúng vào **header của ảnh** (16 bits đầu)
                 - **Chỉ cần 2 file để giải mã**: Ảnh stego + Khóa AES (không cần file PLS)
                 - Tự động tái tạo PLS từ khóa khi giải mã
