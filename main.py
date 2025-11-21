@@ -9,6 +9,43 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
 
+# ===== Calculate Max Message Size =====
+def calculate_max_message(image_file, mode):
+    if not image_file:
+        return "Vui lòng tải ảnh để xem giới hạn"
+    
+    try:
+        with Image.open(image_file) as im:
+            width, height = im.size
+            total_pixels = width * height
+            
+            # Tính overhead cho AES (IV + padding)
+            aes_overhead = 16 + 16  # IV (16 bytes) + max padding (16 bytes)
+            
+            if mode == "advanced":
+                # Advanced mode: cần trừ metadata header
+                # Metadata format: "advanced:XXXX" (khoảng 20 bytes)
+                # + AES overhead cho metadata
+                metadata_size = 20 + aes_overhead
+                metadata_bits = 16 + metadata_size * 8  # LENGTH_BITS + encrypted metadata
+                header_pixels = (metadata_bits + 2) // 3
+                
+                available_pixels = total_pixels - header_pixels
+                max_bits = available_pixels * 3
+            else:
+                # Simple mode: dùng toàn bộ ảnh
+                max_bits = total_pixels * 3
+            
+            # Trừ overhead của AES
+            max_bytes = (max_bits // 8) - aes_overhead
+            max_kb = max_bytes / 1024
+            max_chars = max_bytes  # Ước lượng (1 byte = 1 char cho ASCII)
+            
+            return f"📊 {width}x{height} | Tối đa: ~{max_chars:,} ký tự (~{max_kb:.1f} KB)"
+    
+    except Exception as e:
+        return f"❌ Lỗi: {str(e)}"
+
 # ===== Encode & Decode =====
 def auto_encode_decode(image_file, message, mode):
     if not image_file or not message:
@@ -198,8 +235,8 @@ def run_tests(image_file, message):
         x = np.arange(256)
         fig, ax = plt.subplots(figsize=(12,5))
         ax.plot(x, orig_hist, label="Ảnh gốc", color="blue", linewidth=2)
-        ax.plot(x, simple_hist, label="Simple (LSB + PLS)", color="green", linestyle="--", linewidth=1.5)
-        ax.plot(x, advanced_hist, label="Advanced (LSB thuần)", color="red", linestyle=":", linewidth=1.5)
+        ax.plot(x, simple_hist, label="Simple (Random PLS)", color="green", linestyle="--", linewidth=1.5)
+        ax.plot(x, advanced_hist, label="Advanced (Seeded PLS + Metadata)", color="red", linestyle=":", linewidth=1.5)
         ax.set_title("So sánh Histogram - Cả 2 Phương Pháp")
         ax.set_xlabel("Giá trị Pixel")
         ax.set_ylabel("Số lượng")
@@ -233,6 +270,7 @@ def create_interface():
                         image_input = gr.Image(label="📷 Ảnh Gốc", type="filepath", height=430)
                     with gr.Column():
                         message_input = gr.Textbox(label="💬 Tin Nhắn Cần Giấu", lines=5, placeholder="Nhập tin nhắn bí mật...")
+                        max_msg_info = gr.Textbox(label="📏 Kích thước tin nhắn tối đa", interactive=False, value="Vui lòng tải ảnh để xem giới hạn")
                 with gr.Row():
                     encode_btn = gr.Button("🚀 Mã Hóa", variant="primary", size="lg")
                 with gr.Row():
@@ -251,6 +289,13 @@ def create_interface():
                 def toggle_pls(mode):
                     return gr.update(visible=(mode=="simple"))
                 mode_dropdown.change(toggle_pls, mode_dropdown, pls_output)
+                
+                # Update max message size when image or mode changes
+                def update_max_info(img, mode):
+                    return calculate_max_message(img, mode)
+                
+                image_input.change(update_max_info, [image_input, mode_dropdown], max_msg_info)
+                mode_dropdown.change(update_max_info, [image_input, mode_dropdown], max_msg_info)
 
                 encode_btn.click(
                     fn=auto_encode_decode,
@@ -318,37 +363,83 @@ def create_interface():
                 - Đánh giá chất lượng ảnh qua MSE/PSNR và histogram
                 
                 ### 🔧 Tính Năng Chính
-                **Simple (LSB + PLS)**: Cần file PLS để giải mã, bảo mật cao nhờ thứ tự pixel ngẫu nhiên  
-                **Advanced (LSB thuần)**: Không cần file PLS, giải mã đơn giản  
-                **Mã hóa AES**: Tin nhắn được mã hóa trước khi giấu, khóa 256-bit
+                
+                #### **Simple Mode (LSB + Random PLS)**
+                - PLS được sinh **hoàn toàn ngẫu nhiên**
+                - PLS được mã hóa AES và lưu thành file `.enc` riêng
+                - **Cần cả 3 file để giải mã**: Ảnh stego + File PLS + Khóa AES
+                - Bảo mật cao nhờ thứ tự pixel không thể đoán trước
+                - Phù hợp khi có kênh truyền an toàn cho file PLS
+                
+                #### **Advanced Mode (LSB + Seeded PLS + Metadata)**
+                - PLS được sinh **deterministic** từ SHA256(key)
+                - Metadata (độ dài message) được mã hóa và nhúng vào **header của ảnh** (16 bits đầu)
+                - **Chỉ cần 2 file để giải mã**: Ảnh stego + Khóa AES (không cần file PLS)
+                - Tự động tái tạo PLS từ khóa khi giải mã
+                - Tiện lợi hơn khi truyền/lưu trữ (chỉ cần 2 file thay vì 3)
+                - An toàn vì chỉ người có đúng khóa mới tái tạo được PLS
+                
+                #### **Mã hóa AES**
+                - Tin nhắn được mã hóa AES-256 trước khi giấu vào ảnh
+                - Khóa 256-bit được sinh ngẫu nhiên
+                - Bảo vệ nội dung message ngay cả khi kẻ tấn công biết thuật toán
+                
+                ### 📊 Đánh Giá Chất Lượng
+                - **MSE (Mean Squared Error)**: Đo sai khác trung bình giữa ảnh gốc và stego
+                - **PSNR (Peak Signal-to-Noise Ratio)**: Đánh giá chất lượng ảnh (>40 dB = xuất sắc)
+                - **Histogram**: Phân tích phân bố pixel để phát hiện dấu vết steganography
                 """)
 
             # --- Hướng dẫn ---
             with gr.Tab("📚 Hướng Dẫn Sử Dụng"):
                 gr.Markdown("""
                 ## 📝 Mã Hóa
-                1. Chọn tab Mã Hóa Tin Nhắn  
-                2. Chọn phương pháp mã hóa (Simple/Advanced)  
-                3. Tải ảnh gốc (PNG)  
-                4. Nhập tin nhắn  
-                5. Nhấn 🚀 Mã Hóa  
-                6. Tải ảnh Stego, khóa AES, file PLS (nếu có)
+                1. Chọn tab **Mã Hóa Tin Nhắn**
+                2. Chọn phương pháp:
+                   - **Simple**: Cần lưu file PLS
+                   - **Advanced**: Không cần file PLS
+                3. Tải ảnh gốc (PNG khuyến nghị)
+                4. Nhập tin nhắn bí mật
+                5. Nhấn 🚀 **Mã Hóa**
+                6. Tải về:
+                   - Ảnh Stego (bắt buộc)
+                   - Khóa AES (bắt buộc)
+                   - File PLS (chỉ khi dùng Simple mode)
 
                 ## 🔓 Giải Mã
-                1. Chọn tab Giải Mã Tin Nhắn  
-                2. Chọn phương pháp giải mã (Simple/Advanced)  
-                3. Tải ảnh Stego, khóa AES, file PLS (nếu có)  
-                4. Nhấn 🔓 Giải Mã
+                1. Chọn tab **Giải Mã Tin Nhắn**
+                2. Chọn phương pháp tương ứng với lúc mã hóa
+                3. Tải file:
+                   - **Simple**: Ảnh stego + File PLS + Khóa AES
+                   - **Advanced**: Ảnh stego + Khóa AES (không cần PLS)
+                4. Nhấn 🔓 **Giải Mã**
+                5. Xem tin nhắn đã giải mã
 
                 ## 🧪 So Sánh
-                1. Chọn tab So Sánh  
-                2. Tải ảnh và nhập tin nhắn thử nghiệm  
-                3. Nhấn 🧪 So Sánh  
-                4. Xem ảnh stego, bảng MSE/PSNR, thời gian, histogram
+                1. Chọn tab **So Sánh Phương Pháp**
+                2. Tải ảnh thử nghiệm
+                3. Nhập tin nhắn test
+                4. Nhấn 🧪 **So Sánh**
+                5. Xem kết quả:
+                   - Ảnh stego của cả 2 phương pháp
+                   - Bảng so sánh MSE/PSNR/thời gian
+                   - Biểu đồ histogram overlay
 
-                ## 🔑 Lưu ý
-                - Không chia sẻ khóa AES  
-                - Dùng ảnh PNG, tránh dùng JPG để giảm thiểu mất dữ liệu
+                ## 🔑 Lưu Ý Quan Trọng
+                ⚠️ **Bảo mật:**
+                - **KHÔNG BAO GIỜ** chia sẻ khóa AES qua kênh không an toàn
+                - File PLS (Simple mode) cũng cần bảo mật như khóa AES
+                - Mất khóa = mất tin nhắn vĩnh viễn
+                
+                ⚠️ **Format ảnh:**
+                - Dùng **PNG** để tránh mất dữ liệu do nén
+                - **TRÁNH JPG** vì nén lossy sẽ phá hủy LSB
+                - Ảnh gốc phải đủ lớn để chứa tin nhắn
+                
+                ⚠️ **Giới hạn:**
+                - Tin nhắn tối đa phụ thuộc vào kích thước ảnh
+                - Công thức: `max_chars ≈ (width × height × 3) / 8`
+                - Ví dụ: Ảnh 512×512 → ~98KB tin nhắn
                 """)
     return app
 
