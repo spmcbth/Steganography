@@ -1,16 +1,21 @@
 # 🔐 Image Steganography with AES Encryption
 
-This project demonstrates **LSB image steganography** using **Pixel Location Sequence (PLS)** combined with **AES encryption**.  
-It provides a Gradio-based user interface with multiple features for encoding/decoding secret messages inside images, and analyzing results.
+This project implements an **image steganography system** based on **Least Significant Bit (LSB)** technique combined with **AES-256 encryption** and **Pixel Location Sequence (PLS)**.  
+
+A full-featured **Gradio web interface** is provided to encode, decode, and compare different steganography approaches.
 
 ---
 
 ## ✨ Features
-- **Generate AES Key**: Create a new AES key for encryption/decryption.
-- **Encode Message**: Hide a secret message inside an image using LSB + AES + PLS.
-- **Decode Message**: Extract hidden message from stego image with AES key.
-- **Histogram Analysis**: Compare grayscale histograms of original vs. stego images.
-- **MSE & PSNR Analysis**: Calculate similarity metrics between original and stego images.
+- Hide secret messages in images using **LSB steganography**
+- **AES-256 encryption** before embedding
+- Two modes:
+  - **Simple Mode**: Random PLS + external encrypted metadata
+  - **Advanced Mode**: Seeded PLS + encrypted metadata embedded in image
+- Decode hidden messages securely
+- Image quality evaluation using **MSE** and **PSNR**
+- Histogram comparison (original vs. stego)
+- Performance comparison between two methods
 
 ---
 
@@ -44,6 +49,9 @@ It provides a Gradio-based user interface with multiple features for encoding/de
       message = "This is a secret message. Only those with the key can read it."  # Replace with your test message
       run_comparison(orig_file, message)
    ```
+
+---
+
 ## 💡 Recommendations
 - **Use PNG images** to avoid data loss from compression.  
 - **Use larger images** to hide longer messages with minimal impact on quality.
